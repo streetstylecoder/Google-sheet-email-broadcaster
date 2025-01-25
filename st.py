@@ -332,7 +332,7 @@ def create_text_editor(df, key_prefix, label=""):
             if st.button(col, key=f"btn_{key_prefix}_{col}"):
                 current_text = st.session_state[f"text_{key_prefix}"]
                 st.session_state[f"text_{key_prefix}"] = f"{current_text} {{{col}}}"
-                st.experimental_rerun()
+                st.rerun()
     
     return text
 
@@ -579,7 +579,7 @@ def main():
 
     st.markdown("""
     ---
-    Made by @streetstylecoder
+    Made with ❤️ using Streamlit
     """)
 
 if __name__ == "__main__":
