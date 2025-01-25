@@ -1,0 +1,8 @@
+streamlit
+pandas
+streamlit-aggrid
+openpyxl
+requests
+python-dateutil
+urllib3
+secure-smtplib
