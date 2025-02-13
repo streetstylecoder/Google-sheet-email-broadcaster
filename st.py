@@ -68,31 +68,42 @@ st.markdown("""
         color: #ffd600;
         font-weight: bold;
     }
+    .column-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 15px;
+        padding: 10px;
+        border-radius: 5px;
+        background-color: var(--secondary-background-color);
+    }
+    .stButton button {
+        padding: 2px 10px;
+        font-size: 14px;
+        height: auto;
+        white-space: nowrap;
+    }
 </style>
 """, unsafe_allow_html=True)
+
 def download_drive_file(drive_link):
     """Download file from Google Drive"""
     try:
-        # Extract file ID
         if 'drive.google.com' in drive_link:
             if '/file/d/' in drive_link:
                 file_id = drive_link.split('/file/d/')[1].split('/')[0]
             else:
                 return (None, "Unsupported Drive link format")
 
-            # Create session
             session = requests.Session()
-            
             try:
-                # Get file info
                 response = session.get(
                     f"https://drive.google.com/uc?id={file_id}&export=download",
                     stream=True,
                     timeout=10
                 )
-                response.raise_for_status()  # Raise an error for bad status codes
+                response.raise_for_status()
 
-                # Handle large files
                 token = None
                 for key, value in response.cookies.items():
                     if key.startswith('download_warning'):
@@ -107,15 +118,13 @@ def download_drive_file(drive_link):
                     )
                     response.raise_for_status()
 
-                # Get filename
                 content_disposition = response.headers.get('content-disposition', '')
                 filename = 'attachment'
                 if 'filename=' in content_disposition:
                     filename = re.findall('filename="(.+)"', content_disposition)[0]
                 else:
-                    # Try to get filename from the original URL
                     orig_filename = drive_link.split('/')[-2] if '/file/d/' in drive_link else 'attachment'
-                    filename = orig_filename + '.pdf'  # Default to PDF if no extension
+                    filename = orig_filename + '.pdf'
 
                 return (response.content, filename)
 
@@ -127,114 +136,74 @@ def download_drive_file(drive_link):
 
     return (None, "Unknown error occurred")
 
-# Then in create_email_broadcaster, modify the attachment handling:
+def send_email(sender_email, app_password, recipient_email, cc_recipients, subject, body, attachment_url=None):
+    """Send email using Gmail SMTP"""
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['From'] = sender_email
+        msg['To'] = recipient_email
+        if cc_recipients:
+            msg['Cc'] = cc_recipients
+        msg['Subject'] = subject
 
-            # Get attachment if needed
-           
-    def send_email(sender_email, app_password, recipient_email, cc_recipients, subject, body, attachment_url=None):
-        """Send email using Gmail SMTP"""
-        try:
-            # Create message
-            msg = MIMEMultipart('alternative')  # Change to alternative for HTML support
-            msg['From'] = sender_email
-            msg['To'] = recipient_email
-            if cc_recipients:
-                msg['Cc'] = cc_recipients
-            msg['Subject'] = subject
-    
-            # Add body in both plain text and HTML format
-            # Plain text version
-            text_part = MIMEText(body.replace('<br>', '\n').replace('<a>', '').replace('</a>', ''), 'plain')
-            
-            # HTML version
-            html_part = MIMEText(body, 'html')
-            
-            # Attach both versions
-            msg.attach(text_part)
-            msg.attach(html_part)
-    
-            # Handle attachment if present
-            if attachment_url:
-                try:
-                    content, filename = download_drive_file(attachment_url)
-                    if content:
-                        file_ext = filename.split('.')[-1].lower()
-                        mime_types = {
-                            'pdf': 'application/pdf',
-                            'doc': 'application/msword',
-                            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                            'jpg': 'image/jpeg',
-                            'jpeg': 'image/jpeg',
-                            'png': 'image/png',
-                            'txt': 'text/plain'
-                        }
-                        mime_type = mime_types.get(file_ext, 'application/octet-stream')
-                        
-                        attachment = MIMEApplication(content, _subtype=file_ext)
-                        attachment.add_header(
-                            'Content-Disposition', 
-                            'attachment', 
-                            filename=filename
-                        )
-                        msg.attach(attachment)
-                except Exception as e:
-                    return False, f"Attachment error: {str(e)}"
-    
-            # Create SMTP session
-            server = smtplib.SMTP('smtp.gmail.com', 587)
-            server.starttls()
-            
-            # Login
-            server.login(sender_email, app_password)
-            
-            # Get all recipients
-            all_recipients = [recipient_email]
-            if cc_recipients:
-                all_recipients.extend([email.strip() for email in cc_recipients.split(',')])
-            
-            # Send email
-            server.sendmail(sender_email, all_recipients, msg.as_string())
-            server.quit()
-            return True, "Email sent successfully"
-        except Exception as e:
-            return False, f"Send error: {str(e)}"
+        # Plain text version
+        text_part = MIMEText(
+            body.replace('<br>', '\n')
+                .replace('<a href="', '\n')
+                .replace('">', ': ')
+                .replace('</a>', '')
+                .replace('<b>', '')
+                .replace('</b>', '')
+                .replace('<i>', '')
+                .replace('</i>', ''),
+            'plain'
+        )
+        
+        # HTML version
+        html_part = MIMEText(body, 'html')
+        
+        msg.attach(text_part)
+        msg.attach(html_part)
 
-        # Create SMTP session
+        if attachment_url:
+            try:
+                content, filename = download_drive_file(attachment_url)
+                if content:
+                    file_ext = filename.split('.')[-1].lower()
+                    mime_types = {
+                        'pdf': 'application/pdf',
+                        'doc': 'application/msword',
+                        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        'jpg': 'image/jpeg',
+                        'jpeg': 'image/jpeg',
+                        'png': 'image/png',
+                        'txt': 'text/plain'
+                    }
+                    mime_type = mime_types.get(file_ext, 'application/octet-stream')
+                    
+                    attachment = MIMEApplication(content, _subtype=file_ext)
+                    attachment.add_header(
+                        'Content-Disposition', 
+                        'attachment', 
+                        filename=filename
+                    )
+                    msg.attach(attachment)
+            except Exception as e:
+                return False, f"Attachment error: {str(e)}"
+
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
-        
-        # Login
         server.login(sender_email, app_password)
         
-        # Get all recipients
         all_recipients = [recipient_email]
         if cc_recipients:
             all_recipients.extend([email.strip() for email in cc_recipients.split(',')])
         
-        # Send email
         server.sendmail(sender_email, all_recipients, msg.as_string())
         server.quit()
         return True, "Email sent successfully"
     except Exception as e:
         return False, f"Send error: {str(e)}"
-
-    # In the create_email_broadcaster function, modify the preview section:
-    if has_attachments and attachment_column:
-        drive_link = row_data[attachment_column]
-        content, filename = download_drive_file(drive_link)
-        if content:
-            st.markdown(f"""
-            **Attachment:** 
-            - Original Link: {drive_link}
-            - Filename: {filename}
-            """)
-        else:
-            st.markdown(f"""
-            **Attachment Error:** 
-            - Original Link: {drive_link}
-            - Error: {filename}  # In this case, filename contains the error message
-            """)
-            
 
 def get_sheet_id(url):
     """Extract the sheet ID from the Google Sheets URL"""
@@ -312,47 +281,22 @@ def replace_placeholders(text, row_data, columns):
     return replaced_text
 
 def create_text_editor(df, key_prefix, label=""):
-    """Create a text editor with clickable column names in horizontal layout"""
+    """Create a text editor with clickable column names"""
     if f"text_{key_prefix}" not in st.session_state:
         st.session_state[f"text_{key_prefix}"] = ""
 
-    # Style for horizontal buttons
-    st.markdown("""
-        <style>
-        .column-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-bottom: 15px;
-            padding: 10px;
-            border-radius: 5px;
-            background-color: var(--secondary-background-color);
-        }
-        .stButton button {
-            padding: 2px 10px;
-            font-size: 14px;
-            height: auto;
-            white-space: nowrap;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-    # Create horizontal container for buttons
     button_cols = st.columns(len(df.columns))
     
-    # Text Area
     text = st.text_area(
         label,
         value=st.session_state[f"text_{key_prefix}"],
         height=200,
         key=f"editor_{key_prefix}",
-        help="Click fields above to insert them into your text"
+        help="Click fields above to insert them into your text. You can use HTML tags."
     )
     
-    # Update session state
     st.session_state[f"text_{key_prefix}"] = text
     
-    # Create buttons for each column
     for idx, col in enumerate(df.columns):
         with button_cols[idx]:
             if st.button(col, key=f"btn_{key_prefix}_{col}"):
@@ -362,17 +306,14 @@ def create_text_editor(df, key_prefix, label=""):
     
     return text
 
-
 def create_email_broadcaster(df):
     """Main email broadcaster interface"""
     st.markdown("### 📧 Email Broadcaster")
     
-    # Gmail Credentials
     with st.expander("Email Configuration"):
         sender_email = st.text_input("Gmail Address:", placeholder="your.email@gmail.com")
         app_password = st.text_input("App Password:", type="password", 
-                                   help="Use an App Password from Google Account settings. " +
-                                   "Enable 2FA and generate an App Password for this application.")
+                                   help="Use an App Password from Google Account settings")
         
         st.markdown("""
         **How to get App Password:**
@@ -381,14 +322,11 @@ def create_email_broadcaster(df):
         3. Generate a new App Password for this application
         """)
     
-    # Email Column Selection
     email_column = st.selectbox(
         "Select the column containing email addresses:",
-        options=df.columns,
-        help="Choose the column that contains recipient email addresses"
+        options=df.columns
     )
     
-    # Convert emails to list and remove any duplicates
     unique_emails = df[email_column].unique().tolist()
     st.write(f"Total unique emails found: {len(unique_emails)}")
     
@@ -397,7 +335,6 @@ def create_email_broadcaster(df):
         ["All emails", "Select specific emails"]
     )
     
-    # Initialize selected_emails list
     if email_selection == "All emails":
         selected_emails = unique_emails.copy()
     else:
@@ -407,13 +344,10 @@ def create_email_broadcaster(df):
             default=[]
         )
     
-    # CC Recipients
     cc_recipients = st.text_input(
-        "CC Recipients (comma-separated emails):",
-        help="Add CC recipients separated by commas"
+        "CC Recipients (comma-separated emails):"
     )
     
-    # Subject and Body
     st.markdown("### Email Content")
     
     subject_template = create_text_editor(
@@ -428,25 +362,21 @@ def create_email_broadcaster(df):
         "Email Body:"
     )
     
-    # Attachments
     has_attachments = st.checkbox("Include attachments from Google Drive?")
     attachment_column = None
     if has_attachments:
         attachment_column = st.selectbox(
             "Select the column containing Google Drive links:",
-            options=df.columns,
-            help="Choose the column that contains public Google Drive links"
+            options=df.columns
         )
         st.info("Make sure the Drive links are publicly accessible")
     
-    # Email Status Tracking
     if "email_status" not in st.session_state:
         st.session_state.email_status = {}
     
-    # Preview and Send Buttons
     col1, col2 = st.columns(2)
-    preview_button = col1.button("Generate Email Previews", type="secondary")
-    send_button = col2.button("Send Emails", type="primary")
+    preview_button = col1.button("Generate Email Previews")
+    send_button = col2.button("Send Emails")
 
     if preview_button or send_button:
         if len(selected_emails) == 0:
@@ -459,7 +389,6 @@ def create_email_broadcaster(df):
 
         st.markdown("### 📩 Email Status and Previews")
         
-        # Validate placeholders
         subject_placeholders = get_placeholder_columns(subject_template)
         body_placeholders = get_placeholder_columns(body_template)
         all_placeholders = list(set(subject_placeholders + body_placeholders))
@@ -469,31 +398,25 @@ def create_email_broadcaster(df):
             st.error(f"Invalid placeholders found: {', '.join(invalid_placeholders)}")
             return
 
-        # Create status containers
         status_containers = {}
         for email in selected_emails:
             status_containers[email] = st.empty()
             st.session_state.email_status[email] = "Pending"
         
-        # Progress tracking
         if send_button:
             progress_bar = st.progress(0)
             status_text = st.empty()
         
-        # Process emails
         for idx, email in enumerate(selected_emails):
-            # Update status to processing
             if send_button:
                 st.session_state.email_status[email] = "Processing"
                 status_containers[email].markdown(f"📧 **{email}**: *Processing...*")
                 status_text.text(f"Processing email {idx + 1} of {len(selected_emails)}")
             
-            # Prepare email content
             row_data = df[df[email_column] == email].iloc[0]
             final_subject = replace_placeholders(subject_template, row_data, all_placeholders)
             final_body = replace_placeholders(body_template, row_data, all_placeholders)
             
-            # Get attachment if needed
             attachment_link = None
             attachment_info = ""
             if has_attachments and attachment_column:
@@ -502,20 +425,11 @@ def create_email_broadcaster(df):
                 
                 if content is not None:
                     attachment_link = drive_link
-                    attachment_info = f"""
-                    **Attachment:** 
-                    - Filename: {result}
-                    - Original Link: {drive_link}
-                    """
+                    attachment_info = f"**Attachment:** \n- Filename: {result}\n- Original Link: {drive_link}"
                 else:
-                    attachment_info = f"""
-                    **Attachment Error:** 
-                    - Error: {result}
-                    - Original Link: {drive_link}
-                    """
+                    attachment_info = f"**Attachment Error:** \n- Error: {result}\n- Original Link: {drive_link}"
                     st.warning(f"Attachment issue for {email}: {result}")
                     
-            # Send email if requested
             if send_button:
                 success, message = send_email(
                     sender_email,
@@ -524,10 +438,9 @@ def create_email_broadcaster(df):
                     cc_recipients,
                     final_subject,
                     final_body,
-                    attachment_link if has_attachments and attachment_column else None
+                    attachment_link
                 )
                 
-                # Update status
                 if success:
                     status = f"✅ **{email}**: Sent successfully"
                     st.session_state.email_status[email] = "Success"
@@ -537,16 +450,15 @@ def create_email_broadcaster(df):
                 
                 status_containers[email].markdown(status)
                 progress_bar.progress((idx + 1) / len(selected_emails))
-                time.sleep(0.5)  # Prevent Gmail rate limiting
+                time.sleep(0.5)
             
-            # Show preview
             with st.expander(f"Preview for: {email} - {st.session_state.email_status[email]}"):
                 st.markdown("**To:** " + email)
                 if cc_recipients:
                     st.markdown("**CC:** " + cc_recipients)
                 st.markdown("**Subject:** " + final_subject)
                 st.markdown("**Body:**")
-                st.markdown(final_body, unsafe_allow_html=True)  # Enable HTML rendering
+                st.markdown(final_body, unsafe_allow_html=True)
                 
                 if has_attachments and attachment_column:
                     st.markdown(attachment_info)
@@ -554,7 +466,6 @@ def create_email_broadcaster(df):
         if send_button:
             status_text.text("Finished processing all emails!")
             
-            # Summary
             success_count = sum(1 for status in st.session_state.email_status.values() if status == "Success")
             fail_count = sum(1 for status in st.session_state.email_status.values() if status == "Failed")
             
