@@ -131,47 +131,73 @@ def download_drive_file(drive_link):
 
             # Get attachment if needed
            
-def send_email(sender_email, app_password, recipient_email, cc_recipients, subject, body, attachment_url=None):
-    """Send email using Gmail SMTP"""
-    try:
-        # Create message
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = recipient_email
-        if cc_recipients:
-            msg['Cc'] = cc_recipients
-        msg['Subject'] = subject
-
-        # Add body
-        msg.attach(MIMEText(body, 'plain'))
-
-        # Handle attachment if present
-        if attachment_url:
-            try:
-                content, filename = download_drive_file(attachment_url)
-                if content:
-                    # Determine MIME type based on file extension
-                    file_ext = filename.split('.')[-1].lower()
-                    mime_types = {
-                        'pdf': 'application/pdf',
-                        'doc': 'application/msword',
-                        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                        'jpg': 'image/jpeg',
-                        'jpeg': 'image/jpeg',
-                        'png': 'image/png',
-                        'txt': 'text/plain'
-                    }
-                    mime_type = mime_types.get(file_ext, 'application/octet-stream')
-                    
-                    attachment = MIMEApplication(content, _subtype=file_ext)
-                    attachment.add_header(
-                        'Content-Disposition', 
-                        'attachment', 
-                        filename=filename
-                    )
-                    msg.attach(attachment)
-            except Exception as e:
-                return False, f"Attachment error: {str(e)}"
+    def send_email(sender_email, app_password, recipient_email, cc_recipients, subject, body, attachment_url=None):
+        """Send email using Gmail SMTP"""
+        try:
+            # Create message
+            msg = MIMEMultipart('alternative')  # Change to alternative for HTML support
+            msg['From'] = sender_email
+            msg['To'] = recipient_email
+            if cc_recipients:
+                msg['Cc'] = cc_recipients
+            msg['Subject'] = subject
+    
+            # Add body in both plain text and HTML format
+            # Plain text version
+            text_part = MIMEText(body.replace('<br>', '\n').replace('<a>', '').replace('</a>', ''), 'plain')
+            
+            # HTML version
+            html_part = MIMEText(body, 'html')
+            
+            # Attach both versions
+            msg.attach(text_part)
+            msg.attach(html_part)
+    
+            # Handle attachment if present
+            if attachment_url:
+                try:
+                    content, filename = download_drive_file(attachment_url)
+                    if content:
+                        file_ext = filename.split('.')[-1].lower()
+                        mime_types = {
+                            'pdf': 'application/pdf',
+                            'doc': 'application/msword',
+                            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                            'jpg': 'image/jpeg',
+                            'jpeg': 'image/jpeg',
+                            'png': 'image/png',
+                            'txt': 'text/plain'
+                        }
+                        mime_type = mime_types.get(file_ext, 'application/octet-stream')
+                        
+                        attachment = MIMEApplication(content, _subtype=file_ext)
+                        attachment.add_header(
+                            'Content-Disposition', 
+                            'attachment', 
+                            filename=filename
+                        )
+                        msg.attach(attachment)
+                except Exception as e:
+                    return False, f"Attachment error: {str(e)}"
+    
+            # Create SMTP session
+            server = smtplib.SMTP('smtp.gmail.com', 587)
+            server.starttls()
+            
+            # Login
+            server.login(sender_email, app_password)
+            
+            # Get all recipients
+            all_recipients = [recipient_email]
+            if cc_recipients:
+                all_recipients.extend([email.strip() for email in cc_recipients.split(',')])
+            
+            # Send email
+            server.sendmail(sender_email, all_recipients, msg.as_string())
+            server.quit()
+            return True, "Email sent successfully"
+        except Exception as e:
+            return False, f"Send error: {str(e)}"
 
         # Create SMTP session
         server = smtplib.SMTP('smtp.gmail.com', 587)
@@ -520,7 +546,7 @@ def create_email_broadcaster(df):
                     st.markdown("**CC:** " + cc_recipients)
                 st.markdown("**Subject:** " + final_subject)
                 st.markdown("**Body:**")
-                st.text(final_body)
+                st.markdown(final_body, unsafe_allow_html=True)  # Enable HTML rendering
                 
                 if has_attachments and attachment_column:
                     st.markdown(attachment_info)
